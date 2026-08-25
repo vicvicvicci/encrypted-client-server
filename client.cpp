@@ -6,8 +6,6 @@
 #include <cstring>
 #include <arpa/inet.h>
 
-using namespace std;
-
 int main()
 {
     // creating client socket
@@ -35,8 +33,23 @@ int main()
     const char* message = "Hello, Server!";
     send(clientSocket, message, strlen(message), 0);
 
+    // loop to send messages from user to server
+    std::string userInput;
+    while(true){
+        std::cout<<"Send message to server: ";
+        std::getline(std::cin,userInput);
+        if(userInput == "exit"){
+            break;
+        }
+        send(clientSocket, userInput.c_str(), userInput.length(), 0);
+    }
+
     // close socket
     close(clientSocket);
 
     return 0;
 }
+
+
+
+// write about the problems i faced

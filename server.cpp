@@ -55,6 +55,16 @@ int main()
     recv(clientSocket, buffer, sizeof(buffer), 0);
     std::cout << "Message from client: " << buffer << std::endl;
 
+    // receive messages from client in a loop
+    while(true){
+        char buffer[1024] = {0};
+        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if(bytesReceived <= 0) {
+            break;
+        }
+        std::cout << "Message from client: " << buffer << std::endl;
+    }
+
     // close server socket
     close(serverSocket);
     close(clientSocket);
