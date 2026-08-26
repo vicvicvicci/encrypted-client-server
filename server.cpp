@@ -1,13 +1,104 @@
 // imports
 #include <iostream>
 #include <sys/socket.h> // part of posix socket api, supported on unix/linux based systems (this wouldn't work on arduinos)
-#include <netinet/in.h>
+#include <netinet/in.h> //structure for storing address info
 #include <unistd.h>
 #include <cstring>
+#include <arpa/inet.h> // inet address
+
+// (additional) for threading
+#include <semaphore.h>
+#include <pthread.h> // posix threads used in c
+#include <thread> // c++ native threads
+#include <stdio.h>
+#include <stdlib.h> //go learn what these includes do
+#include <string.h>
+
+// multiclient implementation : have reader thread and writer thread
+
+// semaphore variables
+// what is a semaphore ? 
+
+sem_t x, y; // x as mutual exclusion (mutex) lock to protect reader count, y blocks writer when readers active and vice versa
+int readercount =0; // keep track of number of readers
+
+// reader function
+
+void* reader(void* param){ // param accepts general pointer
+    int clientSocket = (int)(intptr_t)param; // retreive socket value safely
+    pthread_detach(pthread_self()); // detach the thread on exit (release resources)
+
+    // lock semaphore
+    sem_wait(&x); // &x passes memory address of x so sem_wait can modify it directly
+    readercount ++;
+
+    if (readercount ==1){
+        sem_wait(&y); // readers-writers algorithm locks when readercount == 1. >1 would cause deadlock, first reader has to lock so writers cannot enter and subsequent readers no longer have to lock.
+    }
+
+    // unlock semaphore to allow other threads to modify readercount
+    sem_post(&x);
+
+    printf("Reader %ld is reading\n", (long)param);
+
+    // receive messages from server in a loop
+    while(true){
+        char buffer[1024] = {0};
+        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
+        if(bytesReceived <= 0) {
+            break;
+        }
+        std::cout << "Reader Socket " << clientSocket << ":" << buffer << std::endl;
+    }
+
+    // lock the semaphore to update readercount when leaving
+    sem_wait(&x);
+    readercount--;
+
+    if (readercount == 0) {
+        sem_post(&y);
+    }
+
+    // unlock the semaphore
+    sem_post(&x);
+
+    printf("Reader %ld has finished reading\n", (long)param);
+    close(clientSocket);
+    return nullptr;
+}
+
+// writer function
+void* write(void* param){
+    int clientSocket = (int)(intptr_t)param;
+    pthread_detach(pthread_self());
+
+    std::cout<<"Writer "<<clientSocket<<" is waiting for access...\n";
+
+    // lock semaphore
+    sem_wait(&y);
+    std::cout<<"Writer on socket "<<clientSocket<<" has entered critical section\n";
+
+    while (true) {
+        char buffer[1024] = {0};
+        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+        if (bytesReceived <= 0) break;
+        std::cout << "[Writer Socket " << clientSocket << "]: " << buffer << std::endl;
+    }
+    sem_post(&y);
+    std::cout<<"Writer "<<clientSocket<<" has finished writing\n";
+
+    close(clientSocket);
+    return nullptr;
+}
 
 
+// driver code - accept connection and hand them off
 int main()
 {
+    // initialise semaphores
+    sem_init(&x, 0, 1); // mutex for reader count
+    sem_init(&y, 0, 1); // mutex for writer access
+
     // creating server socket
     int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     // AF_INET = IPv4 protocol, SOCK_STREAM = TCP socket / stream socket
@@ -37,12 +128,50 @@ int main()
     }
 
     // listen for incoming connections
-    if(listen(serverSocket, 5) < 0) { // 5 = max number of pending connections
+    if(listen(serverSocket, 50) < 0) { // 50 = max number of pending connections
         perror("listen failed");
         return 1;
     }
 
-    // accept client connection
+    std::cout << "Server is listening on port 8888\n";
+
+
+    while (true){
+        // extract first client connection in queue
+        int clientSocket = accept(serverSocket, nullptr, nullptr);
+
+        if (clientSocket < 0) {
+            continue;
+        }
+
+        int choice = 0;
+        recv(clientSocket, &choice, sizeof(choice),0);
+
+        pthread_t tid; // thread id
+
+        if (choice == 1){ // create readers thread
+            if (pthread_create(&tid, nullptr, reader, (void*)(intptr_t)clientSocket) != 0){ // passing in &clientSocket creates data race so pass by val instead of ref
+                perror("Failed to create reader thread");
+                return 1;
+            }
+        }
+        else if (choice == 2){ // create writers thread
+            if (pthread_create(&tid, nullptr, write, (void*)(intptr_t)clientSocket) != 0){
+                perror("Failed to create writer thread");
+                return 1;
+            }
+        }
+    }
+
+    sem_destroy(&x);
+    sem_destroy(&y);
+    close(serverSocket);
+    return 0;
+}
+
+
+
+/**    // accept client connection
     int clientSocket = accept(serverSocket, nullptr, nullptr);
 
     if(clientSocket < 0) {
@@ -68,6 +197,4 @@ int main()
     // close server socket
     close(serverSocket);
     close(clientSocket);
-
-    return 0;
-}
+ */

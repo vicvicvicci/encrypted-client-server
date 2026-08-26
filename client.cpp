@@ -4,10 +4,22 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
-#include <arpa/inet.h>
+#include <arpa/inet.h> // inet address
+
 
 int main()
 {
+    // get user choice between read/right before making a connection
+    std::cout << "Enter 1 to read from server, 2 to write to server: ";
+    int choice;
+    std::cin >> choice;
+    std::cin.ignore();
+
+    if (choice!=1 && choice!=2) {
+        std::cerr << "Invalid choice. Exiting." << std::endl;
+        return 1;
+    }
+
     // creating client socket
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
     // IPv4, TCP
@@ -28,6 +40,10 @@ int main()
        perror("connect failed");
        return 1;
    }
+
+   // send choice to server first
+   send(clientSocket, &choice, sizeof(choice), 0);
+   std::cout << "Connected to server" << (choice == 1 ? " for reading." : " for writing.") << std::endl;
 
     // send data to server
     const char* message = "Hello, Server!";
