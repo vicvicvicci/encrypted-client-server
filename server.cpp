@@ -41,14 +41,24 @@ void* reader(void* param){ // param accepts general pointer
 
     printf("Reader %ld is reading\n", (long)param);
 
+
     // receive messages from server in a loop
     while(true){
-        char buffer[1024] = {0};
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if(bytesReceived <= 0) {
-            break;
+
+         uint32_t netLength = 0;
+
+        // read 4-byte (exactly) from header
+        int bytesReceived = recv(clientSocket, &netLength, sizeof(netLength), MSG_WAITALL); // wait for all 4 bytes
+        if (bytesReceived < 0) {
+            perror("recv failed");
+            return nullptr;
         }
-        std::cout << "Reader Socket " << clientSocket << ":" << buffer << std::endl;
+
+        uint32_t payloadLength = ntohl(netLength); // convert network byte order back to int
+
+        std::vector<char> buffer(payloadLength + 1, 0); // extra byte for null terminator
+        recv(clientSocket, buffer.data(), payloadLength, MSG_WAITALL); // wait for all bytes
+        std::cout << "Received (" << payloadLength << " bytes): " << buffer.data() << std::endl;
     }
 
     // lock the semaphore to update readercount when leaving

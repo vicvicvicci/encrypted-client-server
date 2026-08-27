@@ -54,10 +54,18 @@ int main()
     while(true){
         std::cout<<"Send message to server: ";
         std::getline(std::cin,userInput);
+
+        // calculate payload length into network byte order
+        uint32_t payloadLength = userInput.length();
+        uint32_t networkLength = htonl(payloadLength);
+
+        // send 4-byte header first (to tell server how many bytes to expect)
+        send(clientSocket, &networkLength, sizeof(networkLength), 0);
+
         if(userInput == "exit"){
             break;
         }
-        send(clientSocket, userInput.c_str(), userInput.length(), 0);
+        send(clientSocket, userInput.c_str(), payloadLength, 0); // send actual data
     }
 
     // close socket
