@@ -18,10 +18,12 @@
 #include <unordered_map>
 #include <string>
 
-// for openssl functions
-#include "crypto.h"
+// for openssl functions -> sha512 checksum, aes256 encryption
+#include "crypto.h" 
 
-// need to create sha512 conversion function
+// Shared testing credentials (must match client.cpp)
+const unsigned char key[] = "01234567890123456789012345678901"; // hardcoded 32-byte key for AES-256 (for now)
+const unsigned char iv[]  = "0123456789012345";
 
 
 // key: username, value: password (SHA512 password hash)
@@ -42,11 +44,11 @@ void sendFramedString(int socket, const std::string& message) {
 std::string receiveFramedString(int clientSocket) {
     uint32_t netLen = 0;
     if (recv(clientSocket, &netLen, sizeof(netLen), MSG_WAITALL) <= 0) {
-        return ""; // Connection closed or error
+        return ""; // connection closed or error
     }
     
     uint32_t len = ntohl(netLen);
-    std::string buffer(len, '\0'); // Allocate memory space before receiving
+    std::string buffer(len, '\0'); // allocate memory space before receiving
     recv(clientSocket, &buffer[0], len, MSG_WAITALL);
     
     return buffer;
@@ -70,7 +72,7 @@ bool verifyUser (const std::string& username, const std::string& password) {
 sem_t x, y; // x as mutual exclusion (mutex) lock to protect reader count, y blocks writer when readers active and vice versa
 int readercount =0; // keep track of number of readers
 
-// reader function
+// reader function ####needs to be fixed####
 
 void* reader(void* param){ // param accepts general pointer
     int clientSocket = (int)(intptr_t)param; // retreive socket value safely
@@ -136,8 +138,13 @@ void* write(void* param){
     std::cout<<"Writer on socket "<<clientSocket<<" has entered critical section\n";
 
     while (true) {
-        std::string message = receiveFramedString(clientSocket);
-        if (message.empty()) break;
+        std::string rawMessage = receiveFramedString(clientSocket);
+        if (rawMessage.empty()) break;
+
+        // decrypt the message using AES-256
+        std::vector<unsigned char> cipherBytes(rawMessage.begin(), rawMessage.end());
+        std::string message = decrypt_aes256(cipherBytes, key, iv);
+
         std::cout << "[Writer Socket " << clientSocket << "]: " << message << std::endl;
     }
     sem_post(&y);

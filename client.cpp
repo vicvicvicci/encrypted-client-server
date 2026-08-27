@@ -101,6 +101,11 @@ int main()
            std::cout << "[Reader Socket " << clientSocket << "]: " << message << std::endl;
        }
    } else if (choice == 2) {
+
+        // Shared testing credentials (must match server.cpp)
+        const unsigned char key[] = "01234567890123456789012345678901"; // hardcoded 32-byte key for AES-256 (for now)
+        const unsigned char iv[]  = "0123456789012345";
+
        // loop to send messages from user to server
        std::string userInput;
        while (true) {
@@ -111,7 +116,13 @@ int main()
                break;
            }
 
-           sendFramedString(clientSocket, userInput);
+           // encrypt the message using AES-256 before sending
+           // into binary vector of unsigned char
+           std::vector<unsigned char> encryptedBytes = encrypt_aes256(userInput, key, iv);
+           // convert the encrypted bytes to a string for sending
+           std::string encryptedMessage(encryptedBytes.begin(), encryptedBytes.end());
+
+           sendFramedString(clientSocket, encryptedMessage);
        }
    }
 
