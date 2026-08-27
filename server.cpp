@@ -14,6 +14,54 @@
 #include <stdlib.h> //go learn what these includes do
 #include <string.h>
 
+// for usernames, passwords
+#include <unordered_map>
+#include <string>
+
+// for openssl functions
+#include "crypto.h"
+
+// need to create sha512 conversion function
+
+
+// key: username, value: password (SHA512 password hash)
+std::unordered_map<std::string, std::string> userDatabase = {
+    {"alice", calculate_sha512_hex((const unsigned char*)"password123", strlen("password123"))}
+};
+
+void sendFramedString(int socket, const std::string& message) {
+    uint32_t payloadLength = message.length();
+    uint32_t networkLength = htonl(payloadLength);
+
+    // send 4-byte header first (to tell server how many bytes to expect)
+    send(socket, &networkLength, sizeof(networkLength), 0);
+    send(socket, message.c_str(), payloadLength, 0); // send actual data
+}
+
+// receiver data
+std::string receiveFramedString(int clientSocket) {
+    uint32_t netLen = 0;
+    if (recv(clientSocket, &netLen, sizeof(netLen), MSG_WAITALL) <= 0) {
+        return ""; // Connection closed or error
+    }
+    
+    uint32_t len = ntohl(netLen);
+    std::string buffer(len, '\0'); // Allocate memory space before receiving
+    recv(clientSocket, &buffer[0], len, MSG_WAITALL);
+    
+    return buffer;
+}
+
+// check user login
+bool verifyUser (const std::string& username, const std::string& password) {
+    auto it = userDatabase.find(username);
+    if (it != userDatabase.end()) {
+        // compare the stored hash with the hash of the provided password
+        return it->second == password; // match found
+    }
+    return false; // user does not exist
+}
+
 // multiclient implementation : have reader thread and writer thread
 
 // semaphore variables
@@ -45,13 +93,12 @@ void* reader(void* param){ // param accepts general pointer
     // receive messages from server in a loop
     while(true){
 
-         uint32_t netLength = 0;
+        uint32_t netLength = 0;
 
         // read 4-byte (exactly) from header
         int bytesReceived = recv(clientSocket, &netLength, sizeof(netLength), MSG_WAITALL); // wait for all 4 bytes
-        if (bytesReceived < 0) {
-            perror("recv failed");
-            return nullptr;
+        if (bytesReceived <= 0) {
+            break;
         }
 
         uint32_t payloadLength = ntohl(netLength); // convert network byte order back to int
@@ -89,10 +136,9 @@ void* write(void* param){
     std::cout<<"Writer on socket "<<clientSocket<<" has entered critical section\n";
 
     while (true) {
-        char buffer[1024] = {0};
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-        if (bytesReceived <= 0) break;
-        std::cout << "[Writer Socket " << clientSocket << "]: " << buffer << std::endl;
+        std::string message = receiveFramedString(clientSocket);
+        if (message.empty()) break;
+        std::cout << "[Writer Socket " << clientSocket << "]: " << message << std::endl;
     }
     sem_post(&y);
     std::cout<<"Writer "<<clientSocket<<" has finished writing\n";
@@ -151,8 +197,22 @@ int main()
         int clientSocket = accept(serverSocket, nullptr, nullptr);
 
         if (clientSocket < 0) {
+            perror("accept failed");
             continue;
         }
+
+        std::string username = receiveFramedString(clientSocket);
+        std::string passwordHashed = receiveFramedString(clientSocket);
+
+        if(!verifyUser(username, passwordHashed)) {
+            std::cout << "Authentication failed for user: " << username << std::endl;
+            sendFramedString(clientSocket, "Authentication failed. Closing connection.");
+            close(clientSocket);
+            continue;
+        }
+
+        std::cout << "Client connected: " << username << std::endl;
+        sendFramedString(clientSocket, "Authentication successful");
 
         int choice = 0;
         recv(clientSocket, &choice, sizeof(choice),0);
@@ -208,3 +268,5 @@ int main()
     close(serverSocket);
     close(clientSocket);
  */
+
+ // if its the last client on, stop listening until new client join? or something
