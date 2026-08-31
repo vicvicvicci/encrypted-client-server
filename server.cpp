@@ -30,6 +30,11 @@ struct UserRecord{
     std::string hashedPassword;
 };
 
+struct ClientSession{
+    int socket;
+    std::string username;
+};
+
 // key: username, value: password (SHA512 password hash)
 std::unordered_map<std::string, UserRecord> userDatabase;
 
@@ -90,7 +95,10 @@ int readercount =0; // keep track of number of readers
 // reader function ####needs to be fixed####
 
 void* reader(void* param){ // param accepts general pointer
-    int clientSocket = (int)(intptr_t)param; // retreive socket value safely
+    ClientSession* session = static_cast<ClientSession*>(param); // use a struct to hold all the data
+    int clientSocket = session->socket;
+    std::string username = session->username;
+
     pthread_detach(pthread_self()); // detach the thread on exit (release resources)
 
     // lock semaphore
@@ -104,7 +112,7 @@ void* reader(void* param){ // param accepts general pointer
     // unlock semaphore to allow other threads to modify readercount
     sem_post(&x);
 
-    printf("Reader %ld is reading\n", (long)param);
+    printf("Reader %s (Socket %d) is reading\n", username.c_str(), clientSocket);
 
 
     // receive messages from server in a loop
@@ -122,7 +130,7 @@ void* reader(void* param){ // param accepts general pointer
 
         std::vector<char> buffer(payloadLength + 1, 0); // extra byte for null terminator
         recv(clientSocket, buffer.data(), payloadLength, MSG_WAITALL); // wait for all bytes
-        std::cout << "Received (" << payloadLength << " bytes): " << buffer.data() << std::endl;
+        std::cout <<username<< "received (" << payloadLength << " bytes): " << buffer.data() << std::endl;
     }
 
     // lock the semaphore to update readercount when leaving
@@ -136,21 +144,24 @@ void* reader(void* param){ // param accepts general pointer
     // unlock the semaphore
     sem_post(&x);
 
-    printf("Reader %ld has finished reading\n", (long)param);
-    close(clientSocket);
+    printf("Reader %s (Socket %d) has finished reading\n", username.c_str(), clientSocket);
+    delete session; // Free heap memory allocated in main()
     return nullptr;
 }
 
 // writer function
 void* write(void* param){
-    int clientSocket = (int)(intptr_t)param;
+    ClientSession* session = static_cast<ClientSession*>(param);
+    int clientSocket = session->socket;
+    std::string username = session->username;
+
     pthread_detach(pthread_self());
 
-    std::cout<<"Writer "<<clientSocket<<" is waiting for access...\n";
+    std::cout<<"Writer "<<username<<" is waiting for access...\n";
 
     // lock semaphore
     sem_wait(&y);
-    std::cout<<"Writer on socket "<<clientSocket<<" has entered critical section\n";
+    std::cout<<username<<" on socket "<<clientSocket<<" has entered critical section\n";
 
     while (true) {
         std::string rawMessage = receiveFramedString(clientSocket);
@@ -160,12 +171,13 @@ void* write(void* param){
         std::vector<unsigned char> cipherBytes(rawMessage.begin(), rawMessage.end());
         std::string message = decrypt_aes256(cipherBytes, key, iv);
 
-        std::cout << "[Writer Socket " << clientSocket << "]: " << message << std::endl;
+        std::cout << "["<< username << " on Socket " << clientSocket  << "]: " << message << std::endl;
     }
     sem_post(&y);
-    std::cout<<"Writer "<<clientSocket<<" has finished writing\n";
+    std::cout<<username<<" has finished writing\n";
 
     close(clientSocket);
+    delete session;
     return nullptr;
 }
 
@@ -241,18 +253,22 @@ int main()
 
         int choice = 0;
         recv(clientSocket, &choice, sizeof(choice),0);
+        // allocate session object on the heap
+        ClientSession* session = new ClientSession{clientSocket, username};
 
         pthread_t tid; // thread id
 
         if (choice == 1){ // create readers thread
-            if (pthread_create(&tid, nullptr, reader, (void*)(intptr_t)clientSocket) != 0){ // passing in &clientSocket creates data race so pass by val instead of ref
+            if (pthread_create(&tid, nullptr, reader, (void*)session) != 0){ // passing in &clientSocket creates data race so pass by val instead of ref
                 perror("Failed to create reader thread");
+                delete session;
                 return 1;
             }
         }
         else if (choice == 2){ // create writers thread
-            if (pthread_create(&tid, nullptr, write, (void*)(intptr_t)clientSocket) != 0){
+            if (pthread_create(&tid, nullptr, write, (void*)session) != 0){
                 perror("Failed to create writer thread");
+                delete session;
                 return 1;
             }
         }
