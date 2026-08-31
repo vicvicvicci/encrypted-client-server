@@ -42,11 +42,8 @@ void authenticateClient(int clientSocket) {
     std::cout << "Enter password: ";
     std::cin >> password;
 
-    // hash password
-    std::string hashedPassword = calculate_sha512_hex((const unsigned char*)password.data(), password.length());
-
     sendFramedString(clientSocket, username);
-    sendFramedString(clientSocket, hashedPassword);
+    sendFramedString(clientSocket, password);
 
     // wait for server response
     std::string serverResponse = receiveFramedString(clientSocket);

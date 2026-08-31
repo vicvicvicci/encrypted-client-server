@@ -25,11 +25,34 @@
 const unsigned char key[] = "01234567890123456789012345678901"; // hardcoded 32-byte key for AES-256 (for now)
 const unsigned char iv[]  = "0123456789012345";
 
+struct UserRecord{
+    std::vector<unsigned char> salt;
+    std::string hashedPassword;
+};
 
 // key: username, value: password (SHA512 password hash)
-std::unordered_map<std::string, std::string> userDatabase = {
-    {"alice", calculate_sha512_hex((const unsigned char*)"password123", strlen("password123"))}
-};
+std::unordered_map<std::string, UserRecord> userDatabase;
+
+void registerUser(const std::string& username, const std::string& rawPassword){
+    UserRecord record;
+    record.salt = generateSalt();
+    record.hashedPassword = hashSaltPassword(rawPassword, record.salt);
+    userDatabase[username] = record;
+}
+
+// check user login
+bool verifyUser (const std::string& username, const std::string& password) {
+    auto it = userDatabase.find(username);
+    if (it != userDatabase.end()) {
+        // hash password with user's salt
+        std::string computedHash = hashSaltPassword(password, it->second.salt);
+
+        // compare the stored hash with the hash of the provided password using constant time comparison
+        return constantTimeCompare(computedHash, it->second.hashedPassword); // match found
+    }
+    return false; // user does not exist
+}
+
 
 void sendFramedString(int socket, const std::string& message) {
     uint32_t payloadLength = message.length();
@@ -54,15 +77,7 @@ std::string receiveFramedString(int clientSocket) {
     return buffer;
 }
 
-// check user login
-bool verifyUser (const std::string& username, const std::string& password) {
-    auto it = userDatabase.find(username);
-    if (it != userDatabase.end()) {
-        // compare the stored hash with the hash of the provided password
-        return it->second == password; // match found
-    }
-    return false; // user does not exist
-}
+
 
 // multiclient implementation : have reader thread and writer thread
 
@@ -158,6 +173,9 @@ void* write(void* param){
 // driver code - accept connection and hand them off
 int main()
 {
+    // populate database with salted users
+    registerUser("alice", "password123");
+
     // initialise semaphores
     sem_init(&x, 0, 1); // mutex for reader count
     sem_init(&y, 0, 1); // mutex for writer access

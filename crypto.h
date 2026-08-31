@@ -4,10 +4,30 @@
 #define CRYPTO_H
 
 #include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/crypto.h>
+#include <openssl/params.h>
+#include <openssl/core_names.h>
 #include <string>
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <stdexcept>
+
+// Constant time comparison to prevent timing attacks
+inline bool constantTimeCompare(const std::string& a, const std::string& b){
+    if (a.length()!=b.length()) return false;
+    return CRYPTO_memcmp(a.data(), b.data(), a.length()) == 0; // returns 0 when bytes match
+}
+
+// Salt generator for passwords
+inline std::vector<unsigned char> generateSalt(){
+    std::vector<unsigned char> salt(16);
+    if (RAND_bytes(salt.data(),salt.size())!=1){
+        throw std::runtime_error("Failure generating salt");
+    }
+    return salt;
+}
 
 // Hashes raw data with SHA-512 and returns a readable hexadecimal string
 inline std::string calculate_sha512_hex(const unsigned char* data, size_t len) {
@@ -26,6 +46,26 @@ inline std::string calculate_sha512_hex(const unsigned char* data, size_t len) {
     }
     return ss.str();
 }
+
+// Hash + Salt
+inline std::string hashSaltPassword(const std::string& password, const std::vector<unsigned char>& salt){
+    std::vector<unsigned char> hash(64); // SHA-512 produces 64 raw bytes
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+
+    EVP_DigestInit_ex(ctx, EVP_sha512(), nullptr);
+    EVP_DigestUpdate(ctx, password.data(), password.length());
+    EVP_DigestUpdate(ctx, salt.data(), salt.size());
+    EVP_DigestFinal_ex(ctx, hash.data(), nullptr);
+    EVP_MD_CTX_free(ctx);
+
+    // Convert 64 binary bytes into your original 128-character hex format
+    std::stringstream ss;
+    for (unsigned char b : hash) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b);
+    }
+    return ss.str();
+}
+
 
 // aes encryption
 
@@ -74,4 +114,4 @@ inline std::string decrypt_aes256 (const std::vector<unsigned char>& ciphertext,
     return std::string((char*)plaintext.data(), plaintext_len); // convert vector to string
 }
 
-#endif // CRYPTO_H
+#endif // CRYPTO_Ha
