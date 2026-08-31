@@ -27,8 +27,6 @@ inline std::string calculate_sha512_hex(const unsigned char* data, size_t len) {
     return ss.str();
 }
 
-#endif // CRYPTO_H
-
 // aes encryption
 
 inline std::vector<unsigned char> encrypt_aes256 (const std::string& plaintext, const unsigned char* key, const unsigned char* iv ){
@@ -75,3 +73,5 @@ inline std::string decrypt_aes256 (const std::vector<unsigned char>& ciphertext,
     plaintext.resize(plaintext_len); // resize vector to actual length of plaintext
     return std::string((char*)plaintext.data(), plaintext_len); // convert vector to string
 }
+
+#endif // CRYPTO_H
